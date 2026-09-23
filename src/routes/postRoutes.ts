@@ -4,8 +4,10 @@ import pool from '../db.js';
 const router = Router();
 
 router.get('/', async (req, res) => {
+  const { term } = req.query;
+
   try {
-    const result = await pool.query(
+    let query = 
       `
         SELECT 
           posts.id AS id,
@@ -21,18 +23,31 @@ router.get('/', async (req, res) => {
         FROM posts
         LEFT JOIN post_tags ON posts.id = post_tags.post_id
         LEFT JOIN tags ON post_tags.tag_id = tags.id
-        GROUP BY 
-          posts.id, 
-          posts.title, 
-          posts.category,
-          posts.content,
-          posts.created_at,
-          posts.updated_at
-        ORDER BY posts.updated_at DESC
-      `
-    );
-    
+      `;
+    const params: string[] = [];
 
+    if (term) {
+      query += `
+        WHERE
+          posts.title ILIKE '%' || $1 || '%'
+          OR posts.content ILIKE '%' || $1 || '%'
+          OR posts.category ILIKE '%' || $1 || '%'
+      `;
+      params.push(term as string);
+    }
+
+    query += `
+      GROUP BY 
+        posts.id, 
+        posts.title, 
+        posts.category,
+        posts.content,
+        posts.created_at,
+        posts.updated_at
+      ORDER BY posts.updated_at DESC
+    `
+    const result = await pool.query(query, params);
+    
     res.json(result.rows);
   } catch (error) {
     console.error(error);
