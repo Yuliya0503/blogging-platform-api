@@ -57,4 +57,53 @@ router.get('/', async (req, res) => {
   }
 })
 
+router.get('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `
+        SELECT 
+          posts.id AS id,
+          posts.title,
+          posts.category,
+          posts.content,
+          COALESCE(
+            ARRAY_AGG (tags.name) FILTER (WHERE tags.id IS NOT NULL),
+            '{}'
+          ) AS tags,
+          posts.created_at AS "createdAt",
+          posts.updated_at AS "updatedAt"
+        FROM posts
+        LEFT JOIN post_tags ON posts.id = post_tags.post_id
+        LEFT JOIN tags ON post_tags.tag_id = tags.id
+        WHERE posts.id = $1
+        GROUP BY 
+          posts.id, 
+          posts.title, 
+          posts.category, 
+          posts.content,
+          posts.created_at,
+          posts.updated_at
+      `,
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        message: 'Post not found'
+      });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      message: 'Failed to get posts'
+    })
+  }
+})
+
+router.post('/', async (req, res) => {
+  
+})
+
 export default router;
