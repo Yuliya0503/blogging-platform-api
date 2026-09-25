@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { validatePosts } from '../validators/postsValidator.js';
 
 const router = Router();
 
@@ -103,7 +104,95 @@ router.get('/:id', async (req, res) => {
 })
 
 router.post('/', async (req, res) => {
-  
+  const { title, content, category, tags } = req.body;
+
+  const validationError = validatePosts(
+    title,
+    content,
+    category, 
+    tags
+  );
+
+  if (validationError) {
+    return res.status(400).json({
+      message: validationError
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    //Create post
+    const postResult = await client.query(
+      `
+        INSERT INTO posts (title, content, category)
+        VALUES ($1, $2, $3)
+        RETURNING id
+      `,
+      [title, content, category]
+    );
+    const postId = postResult.rows[0].id;
+    //Normalize tags
+    const normalizedTags = [
+      ... new Set(
+        (tags ?? []).map((tag: string) => tag.trim().toLowerCase())
+      )
+    ];
+    //create tag
+    for ( const tagName of normalizedTags) {
+      const tagResult = await client.query(
+        `
+          INSERT INTO tags (name)
+          VALUES ($1)
+          ON CONFLICT (name) 
+          DO NOTHING
+          RETURNING id
+        `,
+        [tagName]
+      );
+
+      let tagId;
+
+      if (tagResult.rows.length > 0) {
+        tagId = tagResult.rows[0].id
+      } else {
+        const existingTag = await client.query(
+          `
+            SELECT id
+            FROM tags
+            WHERE name = $1
+          `,
+          [tagName]
+        );
+        tagId = existingTag.rows[0].id;
+      }
+
+      //link tag to the post
+      await client.query(
+        `
+        INSERT INTO post_tags (post_id, tag_id)
+        VALUES ($1, $2)
+        `,
+        [postId, tagId]
+      );
+    }
+    await client.query('COMMIT');
+    res.status(201).json({
+      id: postId,
+      title,
+      content,
+      category,
+      tags: normalizedTags
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error(error);
+    return res.status(500).json({
+      message: 'Failed to create post'
+    })
+  } finally {
+    client.release();
+  }
 })
 
 export default router;
